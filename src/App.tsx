@@ -93,10 +93,42 @@ function SlotMachine({
   )
 }
 
+const STORAGE_KEY = 'roulette-inputs-v1'
+
+function loadStored() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return {
+      names: typeof parsed.names === 'string' ? parsed.names : '',
+      roles: typeof parsed.roles === 'string' ? parsed.roles : '',
+      teamCount:
+        typeof parsed.teamCount === 'number' && parsed.teamCount >= 1
+          ? parsed.teamCount
+          : 2,
+    }
+  } catch {
+    return null
+  }
+}
+
 function App() {
-  const [names, setNames] = useState('')
-  const [roles, setRoles] = useState('')
-  const [teamCount, setTeamCount] = useState(2)
+  const stored = loadStored()
+  const [names, setNames] = useState(stored?.names ?? '')
+  const [roles, setRoles] = useState(stored?.roles ?? '')
+  const [teamCount, setTeamCount] = useState<number>(stored?.teamCount ?? 2)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ names, roles, teamCount }),
+      )
+    } catch {
+      // ignore quota / unavailable
+    }
+  }, [names, roles, teamCount])
   const [results, setResults] = useState<TeamResult[] | null>(null)
   const [isSpinning, setIsSpinning] = useState(false)
   const [showResults, setShowResults] = useState(false)
@@ -199,7 +231,7 @@ function App() {
             </label>
             <textarea
               className="w-full h-44 bg-gray-50 rounded-xl px-4 py-3 text-sm text-gray-800 placeholder-gray-400 border border-gray-200 focus:border-pink-400 focus:ring-2 focus:ring-pink-100 outline-none resize-none transition-all"
-              placeholder={`東神奈川\n大口\n菊名\n新横浜\n小机\n鴨居`}
+              placeholder={`まるい\nいちかわ\nなかにし\nさかい\nにしうら\nみやざわ`}
               value={names}
               onChange={(e) => setNames(e.target.value)}
             />
