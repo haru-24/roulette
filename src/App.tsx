@@ -1,171 +1,29 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-
-type TeamResult = {
-  name: string
-  members: { name: string; role: string }[]
-}
-
-function shuffle<T>(array: T[]): T[] {
-  const arr = [...array]
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[arr[i], arr[j]] = [arr[j], arr[i]]
-  }
-  return arr
-}
-
-const TEAM_COLORS = [
-  'from-rose-500 to-pink-500',
-  'from-blue-500 to-cyan-500',
-  'from-emerald-500 to-teal-500',
-  'from-amber-500 to-orange-500',
-  'from-violet-500 to-purple-500',
-  'from-red-500 to-rose-500',
-  'from-sky-500 to-blue-500',
-  'from-lime-500 to-green-500',
-]
-
-const TEAM_BG_COLORS = [
-  'bg-rose-50 border-rose-200',
-  'bg-blue-50 border-blue-200',
-  'bg-emerald-50 border-emerald-200',
-  'bg-amber-50 border-amber-200',
-  'bg-violet-50 border-violet-200',
-  'bg-red-50 border-red-200',
-  'bg-sky-50 border-sky-200',
-  'bg-lime-50 border-lime-200',
-]
-
-const ROLE_BADGE_COLORS = [
-  'bg-rose-100 text-rose-700',
-  'bg-blue-100 text-blue-700',
-  'bg-emerald-100 text-emerald-700',
-  'bg-amber-100 text-amber-700',
-  'bg-violet-100 text-violet-700',
-  'bg-red-100 text-red-700',
-  'bg-sky-100 text-sky-700',
-  'bg-lime-100 text-lime-700',
-]
-
-function SlotMachine({
-  items,
-  spinning,
-  label,
-}: {
-  items: string[]
-  finalIndex: number
-  spinning: boolean
-  label: string
-}) {
-  const [displayIndex, setDisplayIndex] = useState(0)
-  const intervalRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    if (spinning && items.length > 0) {
-      let speed = 50
-      const tick = () => {
-        setDisplayIndex((prev) => (prev + 1) % items.length)
-        speed = Math.min(speed + 2, 200)
-        intervalRef.current = setTimeout(tick, speed)
-      }
-      intervalRef.current = setTimeout(tick, speed)
-      return () => {
-        if (intervalRef.current) clearTimeout(intervalRef.current)
-      }
-    }
-  }, [spinning, items])
-
-  if (items.length === 0) return null
-
-  return (
-    <div className="flex flex-col items-center">
-      <span className="text-xs text-gray-400 mb-1">{label}</span>
-      <div className="bg-white rounded-lg px-4 py-2 min-w-[120px] text-center overflow-hidden border border-gray-200 shadow-sm">
-        <span
-          className={`text-xl font-bold transition-all ${
-            spinning ? 'text-pink-500 animate-pulse' : 'text-gray-800'
-          }`}
-        >
-          {items[displayIndex] || '?'}
-        </span>
-      </div>
-    </div>
-  )
-}
-
-const STORAGE_KEY = 'roulette-inputs-v1'
-const LAST_ROLES_KEY = 'roulette-last-roles-v1'
-
-function loadStored() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    return {
-      names: typeof parsed.names === 'string' ? parsed.names : '',
-      roles: typeof parsed.roles === 'string' ? parsed.roles : '',
-      teamCount:
-        typeof parsed.teamCount === 'number' && parsed.teamCount >= 1
-          ? parsed.teamCount
-          : 2,
-    }
-  } catch {
-    return null
-  }
-}
-
-function loadLastRoles(): Record<string, string> {
-  try {
-    const raw = localStorage.getItem(LAST_ROLES_KEY)
-    if (!raw) return {}
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return {}
-    const out: Record<string, string> = {}
-    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-      if (typeof k === 'string' && typeof v === 'string') out[k] = v
-    }
-    return out
-  } catch {
-    return {}
-  }
-}
-
-function storeLastRoles(map: Record<string, string>) {
-  try {
-    localStorage.setItem(LAST_ROLES_KEY, JSON.stringify(map))
-  } catch {
-    // ignore quota / unavailable
-  }
-}
+import { ResultsSection } from './components/ResultsSection'
+import { SlotMachine } from './components/SlotMachine'
+import type { TeamResult } from './types/roulette'
+import { parseList } from './utils/list'
+import { shuffle } from './utils/random'
+import { assignRolesToTeams } from './utils/roles'
+import { buildResultImage, toShareText } from './utils/share'
+import { loadStoredInputs, storeInputs } from './utils/storage'
 
 function App() {
-  const stored = loadStored()
+  const stored = loadStoredInputs()
   const [names, setNames] = useState(stored?.names ?? '')
   const [roles, setRoles] = useState(stored?.roles ?? '')
   const [teamCount, setTeamCount] = useState<number>(stored?.teamCount ?? 2)
 
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ names, roles, teamCount }),
-      )
-    } catch {
-      // ignore quota / unavailable
-    }
+    storeInputs({ names, roles, teamCount })
   }, [names, roles, teamCount])
   const [results, setResults] = useState<TeamResult[] | null>(null)
   const [isSpinning, setIsSpinning] = useState(false)
   const [showResults, setShowResults] = useState(false)
   const [slotNames, setSlotNames] = useState<string[]>([])
   const [slotRoles, setSlotRoles] = useState<string[]>([])
+  const [shareStatus, setShareStatus] = useState('')
   const resultRef = useRef<HTMLDivElement>(null)
-
-  const parseList = (text: string) =>
-    text
-      .split('\n')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
 
   const validate = useCallback(() => {
     const nameList = parseList(names)
@@ -205,32 +63,8 @@ function App() {
         teams[teamIdx].members.push({ name, role: '' })
       })
 
-      if (roleList.length > 0) {
-        const lastRoles = loadLastRoles()
-        const nextLastRoles: Record<string, string> = { ...lastRoles }
-
-        teams.forEach((team) => {
-          const availableRoles = shuffle(roleList)
-          team.members.forEach((member) => {
-            if (availableRoles.length === 0) return
-
-            const prevRole = lastRoles[member.name]
-            let pickIdx = 0
-            if (prevRole) {
-              const altIdx = availableRoles.findIndex((r) => r !== prevRole)
-              if (altIdx !== -1) pickIdx = altIdx
-            }
-
-            const picked = availableRoles.splice(pickIdx, 1)[0]
-            member.role = picked
-            nextLastRoles[member.name] = picked
-          })
-        })
-
-        storeLastRoles(nextLastRoles)
-      }
-
-      setResults(teams)
+      const withRoles = assignRolesToTeams(teams, roleList)
+      setResults(withRoles)
       setIsSpinning(false)
 
       setTimeout(() => {
@@ -244,6 +78,44 @@ function App() {
       }, 300)
     }, 2500)
   }, [names, roles, teamCount, validate])
+
+  const handleRerollRoles = useCallback(() => {
+    if (!results) return
+    const roleList = parseList(roles)
+    if (roleList.length === 0) {
+      alert('役割が未入力です')
+      return
+    }
+    const next = assignRolesToTeams(results, roleList)
+    setResults(next)
+    setShareStatus('役割だけ再抽選しました')
+  }, [results, roles])
+
+  const handleCopyResults = useCallback(async () => {
+    if (!results) return
+    const text = toShareText(results)
+    try {
+      await navigator.clipboard.writeText(text)
+      setShareStatus('結果をコピーしました')
+    } catch {
+      alert('コピーに失敗しました')
+    }
+  }, [results, toShareText])
+
+  const handleDownloadImage = useCallback(async () => {
+    try {
+      if (!results) return
+      const canvas = buildResultImage(results)
+      const dataUrl = canvas.toDataURL('image/png')
+      const link = document.createElement('a')
+      link.href = dataUrl
+      link.download = `roulette-result-${Date.now()}.png`
+      link.click()
+      setShareStatus('画像を保存しました')
+    } catch {
+      alert('画像の作成に失敗しました（別ブラウザで再試行してください）')
+    }
+  }, [results])
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800">
@@ -349,13 +221,11 @@ function App() {
           <div className="flex justify-center gap-6 mb-8 animate-bounce">
             <SlotMachine
               items={slotNames}
-              finalIndex={0}
               spinning={isSpinning}
               label="メンバー"
             />
             <SlotMachine
               items={slotRoles}
-              finalIndex={0}
               spinning={isSpinning}
               label="役割"
             />
@@ -364,69 +234,16 @@ function App() {
 
         {/* Results */}
         {results && (
-          <div
-            ref={resultRef}
-            className={`transition-all duration-700 ${
-              showResults
-                ? 'opacity-100 translate-y-0'
-                : 'opacity-0 translate-y-8'
-            }`}
-          >
-            <h2 className="text-2xl font-bold text-center mb-6 text-gray-700">
-              結果
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-              {results.map((team, teamIdx) => (
-                <div
-                  key={teamIdx}
-                  className={`rounded-2xl border-2 p-5 transition-all duration-500 ${TEAM_BG_COLORS[teamIdx % TEAM_BG_COLORS.length]}`}
-                >
-                  <div className="flex items-center gap-3 mb-4">
-                    <div
-                      className={`w-10 h-10 rounded-xl bg-gradient-to-br ${TEAM_COLORS[teamIdx % TEAM_COLORS.length]} flex items-center justify-center font-bold text-white text-lg shadow-lg`}
-                    >
-                      {teamIdx + 1}
-                    </div>
-                    <h3 className="font-bold text-lg text-gray-800">
-                      {team.name}
-                    </h3>
-                    <span className="text-xs text-gray-400 ml-auto">
-                      {team.members.length}人
-                    </span>
-                  </div>
-                  <div className="space-y-2">
-                    {team.members.map((member, memberIdx) => (
-                      <div
-                        key={memberIdx}
-                        className="flex items-center justify-between bg-white/80 rounded-xl px-4 py-2.5 shadow-sm"
-                      >
-                        <span className="font-medium text-gray-700">
-                          {member.name}
-                        </span>
-                        {member.role && (
-                          <span
-                            className={`text-xs font-semibold px-2.5 py-1 rounded-full ${ROLE_BADGE_COLORS[teamIdx % ROLE_BADGE_COLORS.length]}`}
-                          >
-                            {member.role}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Re-spin button */}
-            <div className="flex justify-center mt-8">
-              <button
-                onClick={handleSpin}
-                className="px-6 py-3 rounded-xl bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold transition-colors"
-              >
-                もう一回!
-              </button>
-            </div>
-          </div>
+          <ResultsSection
+            results={results}
+            showResults={showResults}
+            shareStatus={shareStatus}
+            onRerollRoles={handleRerollRoles}
+            onCopyResults={handleCopyResults}
+            onDownloadImage={handleDownloadImage}
+            onSpinAgain={handleSpin}
+            resultRef={resultRef}
+          />
         )}
       </div>
     </div>
