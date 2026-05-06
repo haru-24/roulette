@@ -94,6 +94,7 @@ function SlotMachine({
 }
 
 const STORAGE_KEY = 'roulette-inputs-v1'
+const LAST_ROLES_KEY = 'roulette-last-roles-v1'
 
 function loadStored() {
   try {
@@ -110,6 +111,30 @@ function loadStored() {
     }
   } catch {
     return null
+  }
+}
+
+function loadLastRoles(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(LAST_ROLES_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return {}
+    const out: Record<string, string> = {}
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof k === 'string' && typeof v === 'string') out[k] = v
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+function storeLastRoles(map: Record<string, string>) {
+  try {
+    localStorage.setItem(LAST_ROLES_KEY, JSON.stringify(map))
+  } catch {
+    // ignore quota / unavailable
   }
 }
 
@@ -181,14 +206,28 @@ function App() {
       })
 
       if (roleList.length > 0) {
+        const lastRoles = loadLastRoles()
+        const nextLastRoles: Record<string, string> = { ...lastRoles }
+
         teams.forEach((team) => {
-          const shuffledRoles = shuffle(roleList)
-          team.members.forEach((member, idx) => {
-            if (idx < shuffledRoles.length) {
-              member.role = shuffledRoles[idx]
+          const availableRoles = shuffle(roleList)
+          team.members.forEach((member) => {
+            if (availableRoles.length === 0) return
+
+            const prevRole = lastRoles[member.name]
+            let pickIdx = 0
+            if (prevRole) {
+              const altIdx = availableRoles.findIndex((r) => r !== prevRole)
+              if (altIdx !== -1) pickIdx = altIdx
             }
+
+            const picked = availableRoles.splice(pickIdx, 1)[0]
+            member.role = picked
+            nextLastRoles[member.name] = picked
           })
         })
+
+        storeLastRoles(nextLastRoles)
       }
 
       setResults(teams)
